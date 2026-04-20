@@ -1,0 +1,48 @@
+{
+  "name": "@stellar/shopify-changelog-checker",
+  "version": "0.1.0",
+  "description": "Scans a Stellar Shopify project (theme, Remix app, or UI extensions) and reports which Shopify changelog entries directly impact its code.",
+  "type": "module",
+  "bin": {
+    "shopify-changelog-check": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "dev": "tsc -w",
+    "prepare": "npm run build",
+    "typecheck": "tsc -p . --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "keywords": [
+    "shopify",
+    "changelog",
+    "stellar",
+    "cli"
+  ],
+  "author": "Stellar",
+  "license": "UNLICENSED",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "TODO: fill in after creating the GitHub remote"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "fast-xml-parser": "^5.7.1",
+    "globby": "^16.2.0",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.8.3"
+  }
+}
