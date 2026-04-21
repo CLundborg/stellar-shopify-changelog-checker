@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { writeFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import pc from "picocolors";
 import { fetchChangelog } from "./fetch.js";
 import { scanProject } from "./scan/index.js";
@@ -13,22 +13,131 @@ import {
   guessRepoName,
   loadConsumerConfig,
 } from "./config.js";
+import {
+  loadWorkspaceConfigFile,
+  runWorkspace,
+  writeWorkspaceReports,
+} from "./workspace.js";
+import { getPreset, PRESET_NAMES, type PresetName } from "./presets.js";
 
-interface CliFlags {
+interface CommonFlags {
+  feedUrl?: string;
+  cacheDir?: string;
+  noLlm: boolean;
+  sinceDays?: number;
+}
+
+interface CheckFlags extends CommonFlags {
   projectType?: string;
   rootDir?: string;
   outputPath?: string;
-  sinceDays?: number;
-  feedUrl?: string;
-  cacheDir?: string;
   raw: boolean;
-  noLlm: boolean;
-  help: boolean;
 }
 
-function parseFlags(argv: string[]): CliFlags {
-  const flags: CliFlags = { raw: false, noLlm: false, help: false };
+interface WorkspaceFlags extends CommonFlags {
+  preset?: string;
+  configPath?: string;
+  root?: string;
+  outputDir?: string;
+  combinedOutput?: string;
+  noCombined: boolean;
+}
+
+function log(msg: string): void {
+  process.stderr.write(msg + "\n");
+}
+
+function printHelp(): void {
+  console.log(`shopify-changelog-check [command] [options]
+
+Commands:
+  check                 (default) Scan the current project and write a report
+  workspace             Scan multiple projects in one pass
+
+Common options:
+  --since-days N        Include entries from the last N days (default: 30)
+  --feed-url URL        Override the RSS feed URL
+  --cache-dir PATH      Cache directory (default: ./.changelog-cache)
+  --no-llm              Skip the LLM re-rank step
+  -h, --help            Show this help
+
+Check options (default command):
+  --project-type TYPE   "theme" | "remix-app" | "extension-only"
+  --root-dir PATH       Directory to scan (default: .)
+  --output PATH         Report output path (default: CHANGELOG_IMPACT.md)
+  --raw                 Preview mode: print parsed RSS entries as JSON
+
+Workspace options:
+  --preset NAME         Built-in workspace preset (one of: ${PRESET_NAMES.join(", ")})
+  --config PATH         Workspace config file (JSON or JSONC)
+  --root PATH           Workspace root dir (default: current dir)
+  --output-dir PATH     Per-project reports directory
+                        (default: <root>/changelog-reports)
+  --combined-output PATH Path for combined workspace index
+                        (default: <root>/CHANGELOG_IMPACT.md)
+  --no-combined         Don't write the combined workspace index
+
+Environment:
+  ANTHROPIC_API_KEY     Enables Claude re-rank of ambiguous matches.
+
+Examples:
+  # Single project (run from inside the repo)
+  shopify-changelog-check --project-type remix-app
+
+  # Scan all Stellar repos at once (from the folder that contains them)
+  shopify-changelog-check workspace --preset stellar
+`);
+}
+
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  if (argv.includes("-h") || argv.includes("--help")) {
+    printHelp();
+    return;
+  }
+
+  const [first, ...rest] = argv;
+  if (first === "workspace") {
+    await runWorkspaceCommand(parseWorkspaceFlags(rest));
+    return;
+  }
+
+  // Default command is "check". Also accept an explicit "check".
+  const checkArgv = first === "check" ? rest : argv;
+  await runCheckCommand(parseCheckFlags(checkArgv));
+}
+
+function parseCommon(
+  argv: string[],
+  flags: CommonFlags,
+  i: number,
+): number | null {
+  const a = argv[i];
+  switch (a) {
+    case "--since-days":
+      flags.sinceDays = Number(argv[++i]);
+      return i;
+    case "--feed-url":
+      flags.feedUrl = argv[++i];
+      return i;
+    case "--cache-dir":
+      flags.cacheDir = argv[++i];
+      return i;
+    case "--no-llm":
+      flags.noLlm = true;
+      return i;
+  }
+  return null;
+}
+
+function parseCheckFlags(argv: string[]): CheckFlags {
+  const flags: CheckFlags = { noLlm: false, raw: false };
   for (let i = 0; i < argv.length; i++) {
+    const consumed = parseCommon(argv, flags, i);
+    if (consumed !== null) {
+      i = consumed;
+      continue;
+    }
     const a = argv[i];
     switch (a) {
       case "--project-type":
@@ -41,60 +150,48 @@ function parseFlags(argv: string[]): CliFlags {
       case "--output-path":
         flags.outputPath = argv[++i];
         break;
-      case "--since-days":
-        flags.sinceDays = Number(argv[++i]);
-        break;
-      case "--feed-url":
-        flags.feedUrl = argv[++i];
-        break;
-      case "--cache-dir":
-        flags.cacheDir = argv[++i];
-        break;
       case "--raw":
         flags.raw = true;
-        break;
-      case "--no-llm":
-        flags.noLlm = true;
-        break;
-      case "-h":
-      case "--help":
-        flags.help = true;
         break;
     }
   }
   return flags;
 }
 
-function printHelp(): void {
-  console.log(`shopify-changelog-check [options]
-
-Scans the current project and writes a markdown report of Shopify changelog
-entries that impact its code. Reads config from "shopify-changelog-checker"
-in package.json; CLI flags override it.
-
-Options:
-  --project-type TYPE    "theme" | "remix-app" | "extension-only"
-  --root-dir PATH        Directory to scan (default: .)
-  --output PATH          Report output path (default: CHANGELOG_IMPACT.md)
-  --since-days N         Include entries from the last N days (default: 30)
-  --feed-url URL         Override the RSS feed URL
-  --cache-dir PATH       Cache directory (default: .changelog-cache)
-  --no-llm               Skip the LLM re-rank step even if ANTHROPIC_API_KEY is set
-  --raw                  Preview mode: print parsed RSS entries as JSON and exit
-  -h, --help             Show this help
-
-Environment:
-  ANTHROPIC_API_KEY      Enables Claude re-rank of ambiguous matches.
-`);
+function parseWorkspaceFlags(argv: string[]): WorkspaceFlags {
+  const flags: WorkspaceFlags = { noLlm: false, noCombined: false };
+  for (let i = 0; i < argv.length; i++) {
+    const consumed = parseCommon(argv, flags, i);
+    if (consumed !== null) {
+      i = consumed;
+      continue;
+    }
+    const a = argv[i];
+    switch (a) {
+      case "--preset":
+        flags.preset = argv[++i];
+        break;
+      case "--config":
+        flags.configPath = argv[++i];
+        break;
+      case "--root":
+        flags.root = argv[++i];
+        break;
+      case "--output-dir":
+        flags.outputDir = argv[++i];
+        break;
+      case "--combined-output":
+        flags.combinedOutput = argv[++i];
+        break;
+      case "--no-combined":
+        flags.noCombined = true;
+        break;
+    }
+  }
+  return flags;
 }
 
-async function main(): Promise<void> {
-  const flags = parseFlags(process.argv.slice(2));
-  if (flags.help) {
-    printHelp();
-    return;
-  }
-
+async function runCheckCommand(flags: CheckFlags): Promise<void> {
   if (flags.raw) {
     const entries = await fetchChangelog({
       sinceDays: flags.sinceDays ?? 30,
@@ -179,8 +276,78 @@ async function main(): Promise<void> {
   );
 }
 
-function log(msg: string): void {
-  process.stderr.write(msg + "\n");
+async function runWorkspaceCommand(flags: WorkspaceFlags): Promise<void> {
+  if (!flags.preset && !flags.configPath) {
+    throw new ConfigError(
+      `workspace: pass either --preset <name> (one of: ${PRESET_NAMES.join(", ")}) or --config <path>.`,
+    );
+  }
+  if (flags.preset && flags.configPath) {
+    throw new ConfigError(
+      `workspace: pass only one of --preset and --config.`,
+    );
+  }
+
+  const workspaceRoot = resolve(flags.root ?? process.cwd());
+  const apiKey = process.env["ANTHROPIC_API_KEY"];
+
+  const config = flags.configPath
+    ? await loadWorkspaceConfigFile(resolve(flags.configPath))
+    : getPreset(flags.preset as PresetName, {
+        sinceDays: flags.sinceDays,
+        outputDir: flags.outputDir,
+        combinedOutput: flags.noCombined
+          ? undefined
+          : flags.combinedOutput,
+      });
+
+  // CLI flags win over config file/preset defaults.
+  if (flags.sinceDays !== undefined) config.sinceDays = flags.sinceDays;
+  if (flags.outputDir) config.outputDir = flags.outputDir;
+  if (flags.noCombined) config.combinedOutput = undefined;
+  else if (flags.combinedOutput) config.combinedOutput = flags.combinedOutput;
+
+  const cacheDir =
+    flags.cacheDir ?? join(workspaceRoot, ".changelog-cache");
+
+  log(pc.bold(`\nShopify changelog impact check — workspace mode`));
+  const run = await runWorkspace(config, {
+    workspaceRoot,
+    cacheDir,
+    feedUrl: flags.feedUrl,
+    llm: {
+      apiKey,
+      enabled: flags.noLlm ? false : undefined,
+    },
+    onLog: (m) => log(pc.dim(m)),
+  });
+
+  const written = await writeWorkspaceReports(run, config, workspaceRoot);
+  log("");
+  log(
+    pc.green(
+      `Wrote ${written.perProjectPaths.length} per-project report(s) to ${resolveDisplay(workspaceRoot, config.outputDir)}`,
+    ),
+  );
+  if (written.combinedPath) {
+    log(pc.green(`Combined index: ${written.combinedPath}`));
+  }
+
+  const skipped = run.results.filter((r) => r.error);
+  if (skipped.length > 0) {
+    log(
+      pc.yellow(
+        `\n${skipped.length} project(s) skipped:`,
+      ),
+    );
+    for (const s of skipped) {
+      log(pc.yellow(`  - ${s.spec.name}: ${s.error}`));
+    }
+  }
+}
+
+function resolveDisplay(root: string, p: string): string {
+  return resolve(root, p);
 }
 
 main().catch((err) => {
