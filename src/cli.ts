@@ -50,9 +50,9 @@ Options:
 async function main(): Promise<void> {
   const flags = parseFlags(process.argv.slice(2));
 
-  console.log(
+  process.stderr.write(
     pc.dim(
-      `[shopify-changelog-check] fetching RSS (since ${flags.sinceDays}d)...`,
+      `[shopify-changelog-check] fetching RSS (since ${flags.sinceDays}d)...\n`,
     ),
   );
 
