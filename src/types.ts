@@ -65,6 +65,7 @@ export interface WorkspaceConfig {
   sinceDays?: number;
   outputDir: string;
   combinedOutput?: string;
+  cacheDir?: string;
   projects: WorkspaceProjectSpec[];
 }
 

@@ -1,6 +1,6 @@
 import type { WorkspaceConfig } from "./types.js";
 
-export type PresetName = "stellar";
+export type PresetName = "stellar" | "fiskars";
 
 /**
  * Returns a workspace config for a built-in preset, resolved against the
@@ -14,6 +14,8 @@ export function getPreset(
   switch (name) {
     case "stellar":
       return stellarPreset(options);
+    case "fiskars":
+      return fiskarsPreset(options);
     default: {
       const _exhaustive: never = name;
       void _exhaustive;
@@ -71,4 +73,26 @@ function stellarPreset(options: {
   };
 }
 
-export const PRESET_NAMES: readonly PresetName[] = ["stellar"];
+/**
+ * The Fiskars Shopify workspace: same project list as `stellar`, but with
+ * output paths scoped under `fiskars-shopify-workspace/` so reports don't
+ * clutter the workspace root (e.g. `~/Projects/`).
+ */
+function fiskarsPreset(options: {
+  outputDir?: string;
+  combinedOutput?: string;
+  sinceDays?: number;
+}): WorkspaceConfig {
+  const base = stellarPreset(options);
+  return {
+    ...base,
+    outputDir:
+      options.outputDir ?? "fiskars-shopify-workspace/changelog-reports",
+    combinedOutput:
+      options.combinedOutput ??
+      "fiskars-shopify-workspace/CHANGELOG_IMPACT.md",
+    cacheDir: "fiskars-shopify-workspace/.changelog-cache",
+  };
+}
+
+export const PRESET_NAMES: readonly PresetName[] = ["stellar", "fiskars"];

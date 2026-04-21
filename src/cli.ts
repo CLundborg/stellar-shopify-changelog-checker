@@ -307,8 +307,11 @@ async function runWorkspaceCommand(flags: WorkspaceFlags): Promise<void> {
   if (flags.noCombined) config.combinedOutput = undefined;
   else if (flags.combinedOutput) config.combinedOutput = flags.combinedOutput;
 
-  const cacheDir =
-    flags.cacheDir ?? join(workspaceRoot, ".changelog-cache");
+  const cacheDir = flags.cacheDir
+    ? resolve(flags.cacheDir)
+    : config.cacheDir
+      ? resolve(workspaceRoot, config.cacheDir)
+      : join(workspaceRoot, ".changelog-cache");
 
   log(pc.bold(`\nShopify changelog impact check — workspace mode`));
   const run = await runWorkspace(config, {
