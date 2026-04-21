@@ -21,13 +21,22 @@ interface ScoreDetail {
   matched: Signal[];
 }
 
-const DEPRECATION_RE =
-  /\b(deprecate[ds]?|deprecating|removed?|removing|breaking|will\s+stop|no\s+longer)\b/i;
+// Used only for title/body inspection as a tiebreaker. Phrases are narrower
+// than single words to avoid false positives ("tags can be removed" etc).
+const DEPRECATION_PHRASE_RE =
+  /\b(will\s+be\s+removed|has\s+been\s+deprecated|is\s+deprecated|are\s+deprecated|are\s+removed\s+in|is\s+being\s+removed|no\s+longer\s+supported|breaking\s+change)\b/i;
 
-const ADMIN_GQL_TAGS = new Set([
-  "admin graphql api",
-  "api",
+// Shopify-authored categorization is the most reliable deprecation signal.
+const DEPRECATION_TAGS = new Set([
+  "deprecation announcement",
+  "breaking api change",
+  "deprecated",
+  "breaking",
 ]);
+
+// "Admin GraphQL API" is the specific tag; "API" on its own is too broad to be
+// useful as an affinity signal and produces many false positives.
+const ADMIN_GQL_TAGS = new Set(["admin graphql api"]);
 const EXTENSION_TAGS = new Set([
   "admin extensions",
   "checkout ui",
@@ -102,15 +111,28 @@ function scoreEntry(
   const details: ScoreDetail[] = [];
 
   const apiVersionSignals = signalsByKind.get("api-version") ?? [];
+  const isDeprecationEntry =
+    tagsLc.some((t) => DEPRECATION_TAGS.has(t)) ||
+    DEPRECATION_PHRASE_RE.test(entry.title) ||
+    DEPRECATION_PHRASE_RE.test(entry.body);
   if (apiVersionSignals.length > 0 && entry.apiVersions.length > 0) {
-    const matched = apiVersionSignals.filter((s) =>
-      entry.apiVersions.some((v) => versionGte(v, s.value)),
+    const exactMatches = apiVersionSignals.filter((s) =>
+      entry.apiVersions.includes(s.value),
     );
-    if (matched.length > 0) {
+    const futureMatches = apiVersionSignals.filter((s) =>
+      entry.apiVersions.some((v) => versionGt(v, s.value)),
+    );
+    if (exactMatches.length > 0) {
       details.push({
-        delta: 40,
-        reason: `Entry targets API ${entry.apiVersions.join(", ")} and project pins ${matched.map((s) => s.value).join(", ")}`,
-        matched,
+        delta: 35,
+        reason: `Entry targets API ${entry.apiVersions.join(", ")} which project pins`,
+        matched: exactMatches,
+      });
+    } else if (isDeprecationEntry && futureMatches.length > 0) {
+      details.push({
+        delta: 25,
+        reason: `Deprecation/removal in future API ${entry.apiVersions.join(", ")} — project currently pins ${futureMatches.map((s) => s.value).join(", ")}`,
+        matched: futureMatches,
       });
     }
   }
@@ -206,7 +228,7 @@ function scoreEntry(
       apiVersionSignals.length > 0;
     if (hasGqlCode) {
       details.push({
-        delta: 15,
+        delta: 5,
         reason: `Tagged as Admin GraphQL API and project uses Admin GraphQL`,
         matched: [],
       });
@@ -215,7 +237,7 @@ function scoreEntry(
   if (tagsLc.some((t) => EXTENSION_TAGS.has(t))) {
     if ((signalsByKind.get("extension-target") ?? []).length > 0) {
       details.push({
-        delta: 15,
+        delta: 10,
         reason: `Tagged as extension-related and project ships extensions`,
         matched: [],
       });
@@ -233,15 +255,15 @@ function scoreEntry(
 
   if (entry.actionRequired) {
     details.push({
-      delta: 20,
+      delta: 40,
       reason: `Flagged as Action Required by Shopify`,
       matched: [],
     });
   }
 
-  if (DEPRECATION_RE.test(entry.body) || DEPRECATION_RE.test(entry.title)) {
+  if (isDeprecationEntry) {
     details.push({
-      delta: 15,
+      delta: 10,
       reason: `Deprecation/removal keywords present`,
       matched: [],
     });
@@ -256,8 +278,11 @@ function classifySeverity(entry: ChangelogEntry): Severity {
   const titleLc = entry.title.toLowerCase();
   const bodyLc = entry.body.toLowerCase();
   const tagsLc = entry.tags.map((t) => t.toLowerCase());
-  if (tagsLc.some((t) => t.includes("deprecat"))) return "breaking";
-  if (DEPRECATION_RE.test(titleLc) || /\bremoved?\s+in\s+\d{4}-\d{2}/i.test(bodyLc)) {
+  if (tagsLc.some((t) => DEPRECATION_TAGS.has(t))) return "breaking";
+  if (
+    DEPRECATION_PHRASE_RE.test(titleLc) ||
+    /\bremoved?\s+in\s+\d{4}-\d{2}/i.test(bodyLc)
+  ) {
     return "breaking";
   }
   if (tagsLc.includes("new") || titleLc.startsWith("add ")) {
@@ -311,15 +336,14 @@ function bodyMentionsLiquidToken(haystack: string, needle: string): boolean {
   return patterns.some((re) => re.test(haystack));
 }
 
-function versionGte(a: string, b: string): boolean {
-  const parseVer = (v: string): [number, number] => {
-    const parts = v.split("-");
-    const year = Number(parts[0] ?? 0);
-    const month = Number(parts[1] ?? 0);
-    return [year, month];
-  };
+function parseVer(v: string): [number, number] {
+  const parts = v.split("-");
+  return [Number(parts[0] ?? 0), Number(parts[1] ?? 0)];
+}
+
+function versionGt(a: string, b: string): boolean {
   const [ay, am] = parseVer(a);
   const [by, bm] = parseVer(b);
-  if (ay !== by) return ay >= by;
-  return am >= bm;
+  if (ay !== by) return ay > by;
+  return am > bm;
 }
