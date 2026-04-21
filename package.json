@@ -29,8 +29,12 @@
   "private": false,
   "repository": {
     "type": "git",
-    "url": "TODO: fill in after creating the GitHub remote"
+    "url": "git+https://github.com/CLundborg/stellar-shopify-changelog-checker.git"
   },
+  "bugs": {
+    "url": "https://github.com/CLundborg/stellar-shopify-changelog-checker/issues"
+  },
+  "homepage": "https://github.com/CLundborg/stellar-shopify-changelog-checker#readme",
   "engines": {
     "node": ">=20"
   },
