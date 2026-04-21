@@ -3,44 +3,138 @@
 A personal CLI tool that scans your local Stellar Shopify repos and tells you which entries in the [Shopify developer changelog](https://shopify.dev/changelog) directly impact your code.
 
 - **No project changes.** Nothing gets committed to the theme or app repos — each dev installs the tool for themselves.
-- **Workspace-aware.** One run scans all 7 Stellar repos (theme + 6 apps) and writes a combined report.
+- **Workspace-aware.** One run scans all 7 Stellar repos (theme + 6 apps) and writes per-project reports, a combined markdown index, and an HTML dashboard.
 - **Hybrid analysis.** Rule-based signal matching, optionally re-ranked by Claude when `ANTHROPIC_API_KEY` is set.
 
-## Quick start for the team
+## Team onboarding (5 minutes)
 
-Clone the Stellar repos so they all sit as siblings under one folder, e.g. `~/Projects/`:
+### 1. Prerequisites
 
+- **Node.js ≥ 20** — check with `node -v`. If missing on macOS: `brew install node`.
+- **Cursor** (or VS Code).
+
+### 2. Clone the repos
+
+Pick a parent folder — we'll use `~/Projects/` in the examples. Clone the Stellar repos as **siblings** inside it:
+
+```bash
+cd ~/Projects
+git clone git@github.com:<org>/stellar-shopify.git
+git clone git@github.com:<org>/stellar-app-wishlist.git
+git clone git@github.com:<org>/stellar-shopify-app-gift-purchase-discount.git
+git clone git@github.com:<org>/stellar-shopify-app-print-invoice.git
+git clone git@github.com:<org>/stellar-shopify-app-base-ui-extensions.git
+git clone git@github.com:<org>/stellar-shopify-app-bloomreach-enhancements.git
+git clone git@github.com:<org>/stellar-shopify-app-salesforce-notification.git
 ```
-~/Projects/
-  stellar-shopify/
-  stellar-app-wishlist/
-  stellar-shopify-app-gift-purchase-discount/
-  stellar-shopify-app-print-invoice/
-  stellar-shopify-app-base-ui-extensions/
-  stellar-shopify-app-bloomreach-enhancements/
-  stellar-shopify-app-salesforce-notification/
-```
 
-### Option A — zero-install (recommended)
+You only need the repos you work on — missing ones are skipped with a warning.
 
-Requires Node.js ≥ 20. From the folder containing the repos:
+### 3. Generate reports (one command)
 
 ```bash
 cd ~/Projects
 npx -y github:CLundborg/stellar-shopify-changelog-checker workspace --preset fiskars
 ```
 
-That's it. Everything lands under `~/Projects/fiskars-shopify-workspace/`:
+First run takes ~20-30s while `npx` compiles the tool. Subsequent runs are ~2-5s.
 
-- `CHANGELOG_IMPACT.md` — combined workspace index
-- `changelog-reports/<repo>.md` — detailed per-repo report
-- `.changelog-cache/` — RSS cache
+Everything lands under `~/Projects/fiskars-shopify-workspace/`:
 
-Re-run any time to refresh.
+```
+CHANGELOG_IMPACT.html           ← double-click to browse the dashboard
+CHANGELOG_IMPACT.md             ← markdown summary
+changelog-reports/
+  stellar-shopify.md
+  stellar-app-*.md              ← one per app
+```
 
-> `npx` caches the build after the first run, so subsequent invocations are fast. To upgrade, add `@latest` or pin a tag like `#v0.1.0`.
+Open the dashboard:
 
-### Option B — global install
+```bash
+open ~/Projects/fiskars-shopify-workspace/CHANGELOG_IMPACT.html
+```
+
+### 4. Set up the Cursor workspace
+
+Save this as `~/Projects/fiskars-shopify-workspace.code-workspace`:
+
+```json
+{
+  "folders": [
+    { "name": "📊 Shopify changelog reports", "path": "fiskars-shopify-workspace" },
+    { "name": "stellar-shopify", "path": "stellar-shopify" },
+    { "name": "stellar-app-wishlist", "path": "stellar-app-wishlist" },
+    { "name": "stellar-shopify-app-gift-purchase-discount", "path": "stellar-shopify-app-gift-purchase-discount" },
+    { "name": "stellar-shopify-app-print-invoice", "path": "stellar-shopify-app-print-invoice" },
+    { "name": "stellar-shopify-app-base-ui-extensions", "path": "stellar-shopify-app-base-ui-extensions" },
+    { "name": "stellar-shopify-app-bloomreach-enhancements", "path": "stellar-shopify-app-bloomreach-enhancements" },
+    { "name": "stellar-shopify-app-salesforce-notification", "path": "stellar-shopify-app-salesforce-notification" }
+  ]
+}
+```
+
+Then open it:
+
+```bash
+cursor ~/Projects/fiskars-shopify-workspace.code-workspace
+```
+
+You'll see `📊 Shopify changelog reports` at the top of the sidebar alongside all the repos.
+
+> If you already have a `fiskars-shopify-workspace.code-workspace`, just add the `"📊 Shopify changelog reports"` entry as the first item in `folders`.
+
+### 5. Add a refresh alias
+
+Append to `~/.zshrc` (or `~/.bashrc`):
+
+```bash
+alias fiskars-changelog='cd ~/Projects && npx -y github:CLundborg/stellar-shopify-changelog-checker workspace --preset fiskars'
+```
+
+Reload and refresh any time:
+
+```bash
+source ~/.zshrc
+fiskars-changelog
+```
+
+### 6. Optional — smarter filtering with Claude
+
+Rule-based scoring occasionally includes App Bridge posts that don't apply to a Liquid theme. An Anthropic API key enables a re-rank step that filters those out:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...    # add to ~/.zshrc to persist
+fiskars-changelog
+```
+
+## What you get
+
+Each run writes, under `<workspace-root>/fiskars-shopify-workspace/`:
+
+- **`CHANGELOG_IMPACT.html`** — a self-contained dashboard (inline CSS + JS, no CDN). Filter by severity or project, free-text search, expand per-project scoring details, click through to Shopify's changelog posts. Auto light/dark theme.
+- **`CHANGELOG_IMPACT.md`** — markdown summary with per-project counts table, cross-project Action Required roll-up, and Breaking / Deprecation roll-up.
+- **`changelog-reports/<repo>.md`** — one detailed report per project, with scored entries, matched signals, reasons, excerpts, and LLM assessments (when enabled).
+
+## Quick reference
+
+| What | Command |
+|---|---|
+| First run / refresh | `fiskars-changelog` |
+| Open dashboard | `open ~/Projects/fiskars-shopify-workspace/CHANGELOG_IMPACT.html` |
+| Upgrade the tool | `npx -y github:CLundborg/stellar-shopify-changelog-checker@latest workspace --preset fiskars` |
+| Skip HTML (only md) | add `--no-html` |
+| Skip Claude re-rank | add `--no-llm` |
+| Wider time window | add `--since-days 60` |
+| Different parent folder | add `--root ~/path/to/repos` |
+
+## Install options
+
+### A — zero-install with npx (recommended)
+
+What the onboarding above uses. `npx` caches the build after first run. To pin a version: `github:CLundborg/stellar-shopify-changelog-checker#v0.1.0`.
+
+### B — global install
 
 ```bash
 npm install -g github:CLundborg/stellar-shopify-changelog-checker
@@ -48,7 +142,7 @@ cd ~/Projects
 shopify-changelog-check workspace --preset fiskars
 ```
 
-### Option C — dedicated tool folder
+### C — dedicated tool folder
 
 If you prefer not to touch the global npm prefix:
 
@@ -59,18 +153,10 @@ npm install github:CLundborg/stellar-shopify-changelog-checker
 npx shopify-changelog-check workspace --preset fiskars --root ~/Projects
 ```
 
-## What you get
-
-- `~/Projects/CHANGELOG_IMPACT.md` — a workspace-level index with:
-  - Per-project summary table (Action / Breaking / Feature / Info counts)
-  - "Action Required" items that hit multiple repos
-  - Breaking / deprecation rollup across the workspace
-- `~/Projects/changelog-reports/<repo>.md` — a detailed report per project with scored entries, matched signals, reasons, and excerpts.
-
-## Options
+## All CLI options
 
 ```bash
-shopify-changelog-check workspace --preset stellar [options]
+shopify-changelog-check workspace --preset fiskars [options]
 ```
 
 | Flag | Default | Notes |
@@ -80,32 +166,31 @@ shopify-changelog-check workspace --preset stellar [options]
 | `--root <path>` | `cwd` | Where the repo folders live |
 | `--since-days <n>` | `30` | Window of changelog entries to evaluate |
 | `--output-dir <path>` | preset-dependent | Per-project report directory |
-| `--combined-output <path>` | preset-dependent | Workspace index path |
-| `--no-combined` | off | Skip the combined index |
+| `--combined-output <path>` | preset-dependent | Workspace index path (md + html alongside) |
+| `--no-combined` | off | Skip the combined index (also skips HTML) |
+| `--no-html` | off | Skip just the HTML dashboard |
 | `--no-llm` | off | Skip Claude re-rank even if `ANTHROPIC_API_KEY` is set |
 | `--cache-dir <path>` | preset-dependent | RSS cache location |
 
 **Preset defaults:**
 
-- `fiskars` — outputs under `<root>/fiskars-shopify-workspace/` (keeps everything in one folder)
-- `stellar` — outputs directly under `<root>/` (CHANGELOG_IMPACT.md + changelog-reports/)
+- `fiskars` — everything under `<root>/fiskars-shopify-workspace/` (keeps your `~/Projects/` clean)
+- `stellar` — outputs directly under `<root>/`
 
-Both presets scan the same 7 repos; pick whichever output layout fits your setup.
-
-If a repo folder is missing from `--root`, it's skipped with a warning — you don't need every repo cloned to get useful output.
+Both presets scan the same 7 repos.
 
 ### Optional LLM re-rank
 
-Set `ANTHROPIC_API_KEY` in the environment to have Claude take a second look at ambiguous matches (score 40-69). Pure rule-based results are already usable; the LLM just cleans up borderline noise.
+Set `ANTHROPIC_API_KEY` to have Claude second-guess ambiguous matches (score 40-69). Pure rule-based results are usable as-is; the LLM just cleans up borderline noise.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-shopify-changelog-check workspace --preset stellar
+fiskars-changelog
 ```
 
 ## Single-project mode
 
-You can still run it inside a single repo — useful for ad-hoc checks without configuring the workspace layout:
+Useful for ad-hoc checks inside a single repo:
 
 ```bash
 cd stellar-shopify
@@ -131,7 +216,7 @@ Prefer your own project list? Drop a JSONC file anywhere and point `--config` at
 ```
 
 ```bash
-shopify-changelog-check workspace --config ./stellar-changelog-workspace.jsonc
+shopify-changelog-check workspace --config ./my-workspace.jsonc
 ```
 
 ## Developing this tool
@@ -142,7 +227,7 @@ cd stellar-shopify-changelog-checker
 npm install
 npm run build       # one-shot
 npm run dev         # watch mode
-node dist/cli.js workspace --preset stellar --root ~/Projects
+node dist/cli.js workspace --preset fiskars --root ~/Projects
 ```
 
 ## Layout
@@ -151,7 +236,7 @@ node dist/cli.js workspace --preset stellar --root ~/Projects
 src/
   cli.ts            CLI entrypoint (bin target)
   config.ts         Loads single-project config from package.json
-  presets.ts        Built-in workspace presets (stellar)
+  presets.ts        Built-in workspace presets (fiskars, stellar)
   workspace.ts      Multi-project orchestrator + combined index renderer
   fetch.ts          RSS fetch + last-seen cache
   scan/
@@ -163,5 +248,6 @@ src/
   match-rules.ts    Deterministic scoring engine
   llm-rerank.ts     Optional Claude re-rank (env-gated)
   render-md.ts      Per-project markdown renderer
+  render-html.ts    Workspace HTML dashboard renderer
   types.ts          Shared types
 ```
