@@ -36,20 +36,22 @@ Add to the consumer's `package.json`:
 {
   "scripts": {
     "changelog:check": "shopify-changelog-check"
+  },
+  "shopify-changelog-checker": {
+    "projectType": "remix-app",
+    "rootDir": ".",
+    "outputPath": "CHANGELOG_IMPACT.md",
+    "sinceDays": 30
   }
 }
 ```
 
-Add a `changelog-checker.config.ts` at the consumer's root:
+`projectType` must be one of `"theme"`, `"remix-app"`, or `"extension-only"`.
 
-```ts
-import { defineConfig } from "@stellar/shopify-changelog-checker";
+All of the above can be overridden via CLI flags:
 
-export default defineConfig({
-  projectType: "remix-app", // "theme" | "remix-app" | "extension-only"
-  rootDir: ".",
-  outputPath: "CHANGELOG_IMPACT.md",
-});
+```bash
+npx shopify-changelog-check --project-type theme --since-days 60
 ```
 
 Add `.changelog-cache/` to the consumer's `.gitignore`.
@@ -58,6 +60,18 @@ Then run:
 
 ```bash
 npm run changelog:check
+```
+
+### Optional: LLM re-rank with Claude
+
+Set `ANTHROPIC_API_KEY` in the environment to have Claude re-rank ambiguous matches (scores 40-69). Disable per-run with `--no-llm`, or project-wide with:
+
+```json
+{
+  "shopify-changelog-checker": {
+    "llm": { "enabled": false }
+  }
+}
 ```
 
 ## Local development of this tool
