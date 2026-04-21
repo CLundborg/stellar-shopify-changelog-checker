@@ -41,6 +41,7 @@ interface WorkspaceFlags extends CommonFlags {
   outputDir?: string;
   combinedOutput?: string;
   noCombined: boolean;
+  noHtml: boolean;
 }
 
 function log(msg: string): void {
@@ -76,6 +77,7 @@ Workspace options:
   --combined-output PATH Path for combined workspace index
                         (default: <root>/CHANGELOG_IMPACT.md)
   --no-combined         Don't write the combined workspace index
+  --no-html             Don't write the HTML dashboard
 
 Environment:
   ANTHROPIC_API_KEY     Enables Claude re-rank of ambiguous matches.
@@ -159,7 +161,11 @@ function parseCheckFlags(argv: string[]): CheckFlags {
 }
 
 function parseWorkspaceFlags(argv: string[]): WorkspaceFlags {
-  const flags: WorkspaceFlags = { noLlm: false, noCombined: false };
+  const flags: WorkspaceFlags = {
+    noLlm: false,
+    noCombined: false,
+    noHtml: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const consumed = parseCommon(argv, flags, i);
     if (consumed !== null) {
@@ -185,6 +191,9 @@ function parseWorkspaceFlags(argv: string[]): WorkspaceFlags {
         break;
       case "--no-combined":
         flags.noCombined = true;
+        break;
+      case "--no-html":
+        flags.noHtml = true;
         break;
     }
   }
@@ -325,7 +334,9 @@ async function runWorkspaceCommand(flags: WorkspaceFlags): Promise<void> {
     onLog: (m) => log(pc.dim(m)),
   });
 
-  const written = await writeWorkspaceReports(run, config, workspaceRoot);
+  const written = await writeWorkspaceReports(run, config, workspaceRoot, {
+    writeHtml: !flags.noHtml,
+  });
   log("");
   log(
     pc.green(
@@ -334,6 +345,10 @@ async function runWorkspaceCommand(flags: WorkspaceFlags): Promise<void> {
   );
   if (written.combinedPath) {
     log(pc.green(`Combined index: ${written.combinedPath}`));
+  }
+  if (written.htmlPath) {
+    log(pc.green(`HTML dashboard:  ${written.htmlPath}`));
+    log(pc.dim(`  open "${written.htmlPath}"`));
   }
 
   const skipped = run.results.filter((r) => r.error);

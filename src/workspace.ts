@@ -12,6 +12,7 @@ import { scanProject } from "./scan/index.js";
 import { matchEntries } from "./match-rules.js";
 import { llmRerank } from "./llm-rerank.js";
 import { renderMarkdown } from "./render-md.js";
+import { renderHtmlDashboard } from "./render-html.js";
 
 export interface WorkspaceRunOptions {
   workspaceRoot: string;
@@ -105,7 +106,12 @@ export async function writeWorkspaceReports(
   run: WorkspaceRunResult,
   config: WorkspaceConfig,
   workspaceRoot: string,
-): Promise<{ perProjectPaths: string[]; combinedPath?: string }> {
+  options: { writeHtml?: boolean } = {},
+): Promise<{
+  perProjectPaths: string[];
+  combinedPath?: string;
+  htmlPath?: string;
+}> {
   const outputDirAbs = isAbsolute(config.outputDir)
     ? config.outputDir
     : resolve(workspaceRoot, config.outputDir);
@@ -139,7 +145,18 @@ export async function writeWorkspaceReports(
     await writeFile(combinedPath, combined);
   }
 
-  return { perProjectPaths, combinedPath };
+  let htmlPath: string | undefined;
+  if (options.writeHtml !== false && config.combinedOutput) {
+    const base = isAbsolute(config.combinedOutput)
+      ? config.combinedOutput
+      : resolve(workspaceRoot, config.combinedOutput);
+    htmlPath = base.replace(/\.md$/i, "") + ".html";
+    if (htmlPath === base) htmlPath = base + ".html";
+    await mkdir(dirname(htmlPath), { recursive: true });
+    await writeFile(htmlPath, renderHtmlDashboard(run));
+  }
+
+  return { perProjectPaths, combinedPath, htmlPath };
 }
 
 function renderCombined(
